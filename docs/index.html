@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="es">
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Riqueza en Acción — Demo</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu;background:#f8fafc;margin:0}
+  .wrap{max-width:960px;margin:32px auto;padding:0 16px}
+  .card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:16px;margin:12px 0}
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  input,select,button{padding:10px;border:1px solid #e5e7eb;border-radius:12px;font-size:14px}
+  button{background:#111827;color:#fff;cursor:pointer}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:8px;border-top:1px solid #e5e7eb;font-size:14px}
+</style>
+<body>
+<div class="wrap">
+  <h1>Riqueza en Acción — Diario + Guía</h1>
+  <p>1) Agrega movimientos · 2) Mira métricas · 3) Reporte semanal</p>
+
+  <div class="card">
+    <h3>Agregar movimiento</h3>
+    <div class="row">
+      <input id="date" type="date"/>
+      <input id="amount" type="number" step="any" placeholder="Monto (neg=gasto)"/>
+      <input id="cat" placeholder="Categoría" value="Otros"/>
+      <select id="jar">
+        <option>NEC</option><option>FFA</option><option>EDU</option>
+        <option>LTSS</option><option>PLAY</option><option>GIVE</option>
+      </select>
+      <input id="note" placeholder="Nota"/>
+      <button onclick="addTx()">Guardar</button>
+    </div>
+    <div id="txmsg"></div>
+  </div>
+
+  <div class="card">
+    <h3>Métricas semanales</h3>
+    <button onclick="loadMetrics()">Ver métricas</button>
+    <pre id="metrics" style="white-space:pre-wrap"></pre>
+  </div>
+
+  <div class="card">
+    <h3>Reporte semanal</h3>
+    <button onclick="weekly()">Generar</button>
+    <pre id="report" style="white-space:pre-wrap"></pre>
+  </div>
+
+  <div class="card">
+    <h3>Plan educativo (Kiyosaki + Eker)</h3>
+    <button onclick="genPlan()">Crear plan 6 semanas</button>
+    <pre id="plan" style="white-space:pre-wrap"></pre>
+  </div>
+</div>
+
+<script>
+const API_BASE = "PASTE_API_BASE_HERE"; // <-- pega tu URL pública de ngrok (de Colab)
+
+async function addTx(){
+  const body = {
+    date: document.getElementById('date').value || new Date().toISOString().slice(0,10),
+    amount: Number(document.getElementById('amount').value || 0),
+    currency: "COP",
+    category: document.getElementById('cat').value || "Otros",
+    jar: document.getElementById('jar').value,
+    note: document.getElementById('note').value || ""
+  };
+  const r = await fetch(`${API_BASE}/api/tx`, {method:"POST", headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  document.getElementById('txmsg').textContent = r.ok ? "Movimiento guardado ✓" : "Error al guardar";
+}
+async function loadMetrics(){
+  const r = await fetch(`${API_BASE}/api/metrics/weekly`);
+  document.getElementById('metrics').textContent = JSON.stringify(await r.json(), null, 2);
+}
+async function weekly(){
+  const r = await fetch(`${API_BASE}/api/agent/weekly-report`, {method:"POST", headers:{'Content-Type':'application/json'}, body:"{}"});
+  document.getElementById('report').textContent = JSON.stringify(await r.json(), null, 2);
+}
+async function genPlan(){
+  const r = await fetch(`${API_BASE}/api/plan`, {method:"POST", headers:{'Content-Type':'application/json'}, body:JSON.stringify({level:"basico", weeks:6})});
+  document.getElementById('plan').textContent = JSON.stringify(await r.json(), null, 2);
+}
+</script>
+</body>
+</html>
