@@ -82,19 +82,25 @@ function setAPI(){
 }
 
 async function pingAPI(){
+  const el = document.getElementById('apistatus');
   if(!API_BASE){
-    document.getElementById('apistatus').innerHTML = "<span class='bad'>Pega primero tu URL de ngrok arriba.</span>";
+    el.innerHTML = "<span class='bad'>Pega primero tu URL de ngrok arriba.</span>";
     return;
   }
   try {
     const r = await fetch(`${API_BASE}/`);
-    const t = await r.text();
-    document.getElementById('apistatus').innerHTML =
-      (r.ok && t.includes('"ok": true'))
+    const text = await r.text();
+    let ok = false;
+    try {
+      const j = JSON.parse(text);
+      ok = j && j.ok === true;   // valida {"ok": true}
+    } catch(_) { /* no era JSON */ }
+    el.innerHTML = ok
       ? "<span class='ok'>Conexión OK ✅</span>"
-      : "<span class='bad'>La URL respondió, pero no parece tu API. Revisa.</span>";
+      : "<span class='bad'>No parece tu API. Recibí: "
+        + text.slice(0,120).replace(/[<>&]/g, s => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[s])) + "...</span>";
   } catch {
-    document.getElementById('apistatus').innerHTML = "<span class='bad'>No se pudo conectar. ¿Colab está corriendo?</span>";
+    el.innerHTML = "<span class='bad'>No se pudo conectar. ¿Colab está corriendo?</span>";
   }
 }
 
