@@ -10,16 +10,27 @@
   .row{display:flex;gap:12px;flex-wrap:wrap}
   input,select,button{padding:10px;border:1px solid #e5e7eb;border-radius:12px;font-size:14px}
   button{background:#111827;color:#fff;cursor:pointer}
-  table{width:100%;border-collapse:collapse}
-  th,td{padding:8px;border-top:1px solid #e5e7eb;font-size:14px}
+  pre{background:#0b1020;color:#e5e7eb;padding:12px;border-radius:12px;overflow:auto}
+  .msg{font-size:13px;margin-top:6px}
+  .ok{color:#059669}.bad{color:#dc2626}
 </style>
 <body>
 <div class="wrap">
   <h1>Riqueza en Acción — Diario + Guía</h1>
-  <p>1) Agrega movimientos · 2) Mira métricas · 3) Reporte semanal</p>
+  <p>1) Pon la URL de tu API (ngrok) · 2) Agrega movimientos · 3) Ver métricas y reporte</p>
 
   <div class="card">
-    <h3>Agregar movimiento</h3>
+    <h3>1) Conexión con tu API (ngrok)</h3>
+    <div class="row">
+      <input id="api" style="flex:1" placeholder="https://xxxx.ngrok-free.app"/>
+      <button onclick="setAPI()">Guardar</button>
+      <button onclick="pingAPI()">Probar</button>
+    </div>
+    <div id="apistatus" class="msg"></div>
+  </div>
+
+  <div class="card">
+    <h3>2) Agregar movimiento</h3>
     <div class="row">
       <input id="date" type="date"/>
       <input id="amount" type="number" step="any" placeholder="Monto (neg=gasto)"/>
@@ -31,30 +42,83 @@
       <input id="note" placeholder="Nota"/>
       <button onclick="addTx()">Guardar</button>
     </div>
-    <div id="txmsg"></div>
+    <div id="txmsg" class="msg"></div>
   </div>
 
   <div class="card">
-    <h3>Métricas semanales</h3>
+    <h3>3) Métricas semanales</h3>
     <button onclick="loadMetrics()">Ver métricas</button>
-    <pre id="metrics" style="white-space:pre-wrap"></pre>
+    <pre id="metrics"></pre>
+    <div id="metricsmsg" class="msg"></div>
   </div>
 
   <div class="card">
-    <h3>Reporte semanal</h3>
+    <h3>4) Reporte semanal (Insights + Micro-acción + Lección)</h3>
     <button onclick="weekly()">Generar</button>
-    <pre id="report" style="white-space:pre-wrap"></pre>
+    <pre id="report"></pre>
+    <div id="reportmsg" class="msg"></div>
   </div>
 
   <div class="card">
-    <h3>Plan educativo (Kiyosaki + Eker)</h3>
+    <h3>5) Plan educativo (Kiyosaki + Eker)</h3>
     <button onclick="genPlan()">Crear plan 6 semanas</button>
-    <pre id="plan" style="white-space:pre-wrap"></pre>
+    <pre id="plan"></pre>
+    <div id="planmsg" class="msg"></div>
   </div>
 </div>
 
 <script>
-const API_BASE = "https://6ed420d19b07.ngrok-free.app"; // <-- pega tu URL pública de ngrok (de Colab)
+let API_BASE = localStorage.getItem("API_BASE") || "";
+
+function setAPI(){
+  const v = document.getElementById('api').value.trim();
+  if(!v.startsWith("https://")){
+    document.getElementById('apistatus').innerHTML = "<span class='bad'>Debe empezar por https://</span>";
+    return;
+  }
+  API_BASE = v.replace(/\/+$/,""); // quitar / final
+  localStorage.setItem("API_BASE", API_BASE);
+  document.getElementById('apistatus').innerHTML = "<span class='ok'>API guardada: "+API_BASE+"</span>";
+}
+
+async function pingAPI(){
+  if(!API_BASE){
+    document.getElementById('apistatus').innerHTML = "<span class='bad'>Pega primero tu URL de ngrok arriba.</span>";
+    return;
+  }
+  try {
+    const r = await fetch(`${API_BASE}/`);
+    const t = await r.text();
+    document.getElementById('apistatus').innerHTML =
+      (r.ok && t.includes('"ok": true'))
+      ? "<span class='ok'>Conexión OK ✅</span>"
+      : "<span class='bad'>La URL respondió, pero no parece tu API. Revisa.</span>";
+  } catch {
+    document.getElementById('apistatus').innerHTML = "<span class='bad'>No se pudo conectar. ¿Colab está corriendo?</span>";
+  }
+}
+
+async function safeFetchJSON(url, options, outPreId, msgId){
+  const out = document.getElementById(outPreId), msg = document.getElementById(msgId);
+  out.textContent = ""; msg.textContent = "";
+  if(!API_BASE){ msg.innerHTML = "<span class='bad'>Primero configura la API (arriba).</span>"; return null; }
+  try {
+    const r = await fetch(url, options);
+    const text = await r.text();
+    try {
+      const json = JSON.parse(text);
+      out.textContent = JSON.stringify(json, null, 2);
+      return json;
+    } catch {
+      out.textContent = text;
+      msg.innerHTML = "<span class='bad'>⚠️ La respuesta no es JSON. Suele pasar si API_BASE no es tu URL de ngrok o Colab se detuvo.</span>";
+      return null;
+    }
+  } catch {
+    msg.innerHTML = "<span class='bad'>Error de conexión. ¿API viva? ¿URL correcta?</span>";
+    return null;
+  }
+}
 
 async function addTx(){
   const body = {
@@ -65,20 +129,30 @@ async function addTx(){
     jar: document.getElementById('jar').value,
     note: document.getElementById('note').value || ""
   };
-  const r = await fetch(`${API_BASE}/api/tx`, {method:"POST", headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
-  document.getElementById('txmsg').textContent = r.ok ? "Movimiento guardado ✓" : "Error al guardar";
+  const ok = await safeFetchJSON(`${API_BASE}/api/tx`, {
+    method:"POST", headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
+  }, "metrics", "txmsg");
+  document.getElementById('txmsg').innerHTML = ok ? "<span class='ok'>Movimiento guardado ✓</span>"
+                                                  : "<span class='bad'>No se pudo guardar.</span>";
 }
 async function loadMetrics(){
-  const r = await fetch(`${API_BASE}/api/metrics/weekly`);
-  document.getElementById('metrics').textContent = JSON.stringify(await r.json(), null, 2);
+  await safeFetchJSON(`${API_BASE}/api/metrics/weekly`, {}, "metrics", "metricsmsg");
 }
 async function weekly(){
-  const r = await fetch(`${API_BASE}/api/agent/weekly-report`, {method:"POST", headers:{'Content-Type':'application/json'}, body:"{}"});
-  document.getElementById('report').textContent = JSON.stringify(await r.json(), null, 2);
+  await safeFetchJSON(`${API_BASE}/api/agent/weekly-report`, {
+    method:"POST", headers:{'Content-Type':'application/json'}, body:"{}"
+  }, "report", "reportmsg");
 }
 async function genPlan(){
-  const r = await fetch(`${API_BASE}/api/plan`, {method:"POST", headers:{'Content-Type':'application/json'}, body:JSON.stringify({level:"basico", weeks:6})});
-  document.getElementById('plan').textContent = JSON.stringify(await r.json(), null, 2);
+  await safeFetchJSON(`${API_BASE}/api/plan`, {
+    method:"POST", headers:{'Content-Type':'application/json'}, body:JSON.stringify({level:"basico", weeks:6})
+  }, "plan", "planmsg");
+}
+
+// Cargar API_BASE guardado (si había)
+if(API_BASE){
+  document.getElementById('api').value = API_BASE;
+  document.getElementById('apistatus').innerHTML = "<span class='ok'>API recordada: "+API_BASE+"</span>";
 }
 </script>
 </body>
