@@ -102,5 +102,328 @@
       const [note, setNote] = useState("");
       return (
         <form onSubmit={(e)=>{e.preventDefault(); onAdd({amount:Number(amount),category,jar,note}); setAmount(""); setNote("");}} className="grid grid-cols-12 gap-2">
-          <input type="number" step="any" required value={amoun
+          <input type="number" step="any" required value={amount} onChange={e=>setAmount(e.target.value)} placeholder="Monto (neg=gasto)" className="col-span-4 px-3 py-2 border rounded-xl text-sm"/>
+          <input value={category} onChange={e=>setCategory(e.target.value)} placeholder="Categoría" className="col-span-3 px-3 py-2 border rounded-xl text-sm"/>
+          <select value={jar} onChange={e=>setJar(e.target.value)} className="col-span-3 px-3 py-2 border rounded-xl text-sm">
+            {JARS.map(j=><option key={j} value={j}>{j}</option>)}
+          </select>
+          <button className="col-span-2 px-3 py-2 rounded-xl text-sm bg-indigo-600 text-white">Agregar</button>
+          <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Nota (opcional)" className="col-span-12 px-3 py-2 border rounded-xl text-sm"/>
+        </form>
+      );
+    };
 
+    const InsightCards = ({insights=[]})=>(
+      <div className="grid md:grid-cols-2 gap-3">
+        {insights.map((i,idx)=>(
+          <Card key={idx} title={i.title} subtitle={(i.tags||[]).join(" • ")}>
+            <p className="text-sm text-gray-700">{i.body}</p>
+          </Card>
+        ))}
+      </div>
+    );
+
+    const EducationPlan = ({plan})=>{
+      if(!plan?.weeks?.length) return <div className="text-sm text-gray-500">Aún no has generado un plan.</div>;
+      return (
+        <div className="space-y-4">
+          {plan.weeks.map(w=>(
+            <Card key={w.week} title={`Semana ${w.week}`} subtitle="Objetivo: progreso financiero 3–4 h">
+              <div className="divide-y">
+                {w.lessons.map(l=>(
+                  <div key={l.id} className="py-2 flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-medium text-gray-900">{l.title}</div>
+                      <div className="text-xs text-gray-500">{l.id.startsWith("k") ? "Kiyosaki":"Eker"}</div>
+                    </div>
+                    <span className="text-xs text-gray-600 bg-gray-100 rounded-full px-2 py-1">{l.minutes} min</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          ))}
+        </div>
+      );
+    };
+
+    const WeeklyReview = ({metrics={}, microAction="", onAccept})=>{
+      const top = metrics?.cat_top?.[0];
+      return (
+        <Card title="Revisión semanal" subtitle="Resumen y acción SMART">
+          <div className="grid md:grid-cols-3 gap-4">
+            <RingGauge value={metrics.pyf_pct||10} label="Págate primero (objetivo)"/>
+            <div>
+              <div className="text-sm text-gray-500 mb-1">Ratio Activos/Pasivos</div>
+              <div className="text-2xl font-semibold">{metrics.assets_liab_ratio ?? 0}</div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-500 mb-1">Categoría más alta</div>
+              <div className="text-sm text-gray-800">{top ? `${top[0]} (${money(top[1])})` : "—"}</div>
+            </div>
+          </div>
+          <div className="mt-4">
+            <div className="text-sm font-medium mb-1">Acción de la semana</div>
+            <div className="text-sm text-gray-800 bg-amber-50 border border-amber-200 rounded-xl p-3">{microAction || "Genera el reporte para ver tu acción"}</div>
+          </div>
+          <div className="mt-3 flex gap-2">
+            <button onClick={onAccept} className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm">Aceptar acción</button>
+            <button onClick={()=>alert("Se propondrá otra en la próxima revisión.")} className="px-3 py-2 rounded-xl border text-sm">Sugerir otra</button>
+          </div>
+        </Card>
+      );
+    };
+
+    function App(){
+      const [tab, setTab] = useState("dashboard");
+      const [apiBase, setApiBase] = useState("");
+      const [apiStatus, setApiStatus] = useState("");
+
+      const [txs, setTxs] = useState([]);
+      const [metrics, setMetrics] = useState(null);
+      const [insights, setInsights] = useState(null);
+      const [microAction, setMicroAction] = useState("");
+      const [plan, setPlan] = useState(null);
+
+      // Upload
+      const [file, setFile] = useState(null);
+      const [currency, setCurrency] = useState("COP");
+      const [mapping, setMapping] = useState("");
+      const [uploadMsg, setUploadMsg] = useState("");
+
+      useEffect(()=>{ 
+        const saved = localStorage.getItem("API_BASE") || "";
+        if(saved){ setApiBase(saved); ping(saved); }
+      }, []);
+
+      const fetchJSON = async (url, init)=>{
+        const r = await fetch(url, init);
+        const text = await r.text();
+        try { return JSON.parse(text); }
+        catch { throw new Error("Respuesta no JSON: "+text.slice(0,120)); }
+      };
+
+      const saveApiBase = ()=>{
+        if(!apiBase.startsWith("https://")) { setApiStatus("Debe empezar por https://"); return; }
+        const base = apiBase.replace(/\/+$/,'');
+        setApiBase(base);
+        localStorage.setItem("API_BASE", base);
+        ping(base);
+      };
+
+      const ping = async (base=apiBase)=>{
+        setApiStatus("Probando...");
+        try{
+          const j = await fetchJSON(`${base}/healthz`);
+          setApiStatus(j && j.ok ? "Conexión OK ✅" : "No parece tu API");
+        }catch{
+          setApiStatus("No se pudo conectar. ¿Colab está corriendo?");
+        }
+      };
+
+      const loadTx = async ()=>{
+        if(!apiBase) return;
+        try{ const j = await fetchJSON(`${apiBase}/api/tx`); setTxs(j.items||[]); }catch{}
+      };
+
+      const loadMetrics = async ()=>{
+        if(!apiBase) return;
+        try{
+          const all = await fetchJSON(`${apiBase}/api/metrics/weekly`);
+          const weeks = Object.keys(all||{}).sort();
+          setMetrics(weeks.length ? all[weeks[weeks.length-1]] : null);
+        }catch{}
+      };
+
+      const genWeekly = async ()=>{
+        if(!apiBase) return;
+        try{
+          const j = await fetchJSON(`${apiBase}/api/agent/weekly-report`, {method:"POST", headers:{'Content-Type':'application/json'}, body:"{}"});
+          setInsights(j.insights||[]); setMicroAction(j.micro_action||"");
+        }catch(e){ alert(e.message); }
+      };
+
+      const genPlan = async ()=>{
+        if(!apiBase) return;
+        try{
+          const j = await fetchJSON(`${apiBase}/api/plan`, {method:"POST", headers:{'Content-Type':'application/json'}, body: JSON.stringify({level:"basico", weeks:6})});
+          setPlan(j);
+        }catch(e){ alert(e.message); }
+      };
+
+      const addTxManual = async ({amount, category, jar, note})=>{
+        if(!apiBase) return alert("Configura la API primero");
+        const body = { date: new Date().toISOString().slice(0,10), amount:Number(amount||0), currency:"COP", category:category||"Otros", jar:jar||"NEC", note:note||"" };
+        try{
+          await fetchJSON(`${apiBase}/api/tx`, {method:"POST", headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+          await loadTx(); await loadMetrics();
+          alert("Movimiento guardado ✓");
+        }catch(e){ alert(e.message); }
+      };
+
+      const uploadStatement = async ()=>{
+        if(!apiBase) return alert("Configura la API primero");
+        if(!file) return setUploadMsg("Elige un archivo .csv/.xlsx");
+        setUploadMsg("Subiendo...");
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("currency", currency);
+        if(mapping.trim()) fd.append("mapping", mapping.trim());
+        try{
+          const r = await fetch(`${apiBase}/api/upload/statement`, {method:"POST", body: fd});
+          const text = await r.text();
+          const json = JSON.parse(text);
+          if(json.ok){ setUploadMsg(`Subido: ${json.inserted} movimientos`); await loadTx(); await loadMetrics(); }
+          else setUploadMsg("No pude procesar el archivo: "+(json.error||""));
+        }catch{ setUploadMsg("Error de conexión o formato."); }
+      };
+
+      const barData = useMemo(()=>{
+        const sbj = metrics?.spend_by_jar || {};
+        return JARS.map(j=>({label:j, value: sbj[j]||0}));
+      }, [metrics]);
+
+      return (
+        <div className="min-h-screen">
+          {/* Header */}
+          <header className="sticky top-0 z-10 bg-white border-b border-gray-100">
+            <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 rounded-2xl bg-indigo-600 text-white grid place-items-center font-bold">R</div>
+                <div>
+                  <div className="font-semibold">Riqueza en Acción</div>
+                  <div className="text-xs text-gray-500">Extractos CSV/XLSX + Manual · Kiyosaki & Eker</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input value={apiBase} onChange={e=>setApiBase(e.target.value)} placeholder="https://xxxx.ngrok-free.app" className="px-3 py-2 border rounded-xl text-sm w-64"/>
+                <button onClick={saveApiBase} className="px-3 py-2 text-sm rounded-xl border">Guardar</button>
+                <button onClick={()=>ping()} className="px-3 py-2 text-sm rounded-xl bg-gray-900 text-white">Probar</button>
+              </div>
+            </div>
+            <div className="max-w-6xl mx-auto px-4 pb-2 text-xs text-gray-600">{apiStatus}</div>
+          </header>
+
+          {/* Main */}
+          <main className="max-w-6xl mx-auto px-4 py-6 grid md:grid-cols-12 gap-6">
+            {/* Sidebar */}
+            <aside className="md:col-span-3 lg:col-span-2">
+              <nav className="bg-white rounded-2xl border border-gray-100 p-2 sticky top-20">
+                {[
+                  {id:"dashboard",label:"Dashboard"},
+                  {id:"import",label:"Importar extracto"},
+                  {id:"tx",label:"Transacciones"},
+                  {id:"edu",label:"Educación"},
+                  {id:"review",label:"Revisión semanal"},
+                ].map(x=>(
+                  <button key={x.id} onClick={()=>setTab(x.id)} className={cn("w-full text-left px-3 py-2 rounded-xl text-sm mb-1", tab===x.id ? "bg-indigo-600 text-white":"hover:bg-gray-100")}>{x.label}</button>
+                ))}
+                <div className="mt-3 p-3 rounded-xl bg-indigo-50 text-indigo-900 text-xs">
+                  <div className="font-semibold mb-1">Frascos (objetivo)</div>
+                  <ul className="space-y-1">
+                    <li>NEC 55%</li><li>FFA 10%</li><li>EDU 10%</li>
+                    <li>LTSS 10%</li><li>PLAY 10%</li><li>GIVE 5%</li>
+                  </ul>
+                </div>
+              </nav>
+            </aside>
+
+            {/* Content */}
+            <section className="md:col-span-9 lg:col-span-10 space-y-6">
+              {tab==="dashboard" && (
+                <>
+                  <div className="grid md:grid-cols-3 gap-4">
+                    <Card title="Págate primero (FFA)"><RingGauge value={metrics?.pyf_pct || 10} label="Objetivo semanal"/></Card>
+                    <Card title="Ratio Activos/Pasivos"><div className="text-3xl font-semibold">{metrics?.assets_liab_ratio ?? 0}</div><div className="text-xs text-gray-500">Meta: ≥ 1.0</div></Card>
+                    <Card title="Acción SMART de la semana">
+                      <div className="text-sm text-gray-800">{microAction || "Genera el reporte para ver tu acción"}</div>
+                      <div className="mt-2 flex gap-2">
+                        <button onClick={genWeekly} className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm">Generar reporte</button>
+                        <button onClick={loadMetrics} className="px-3 py-2 rounded-xl border text-sm">Actualizar métricas</button>
+                      </div>
+                    </Card>
+                  </div>
+
+                  <div className="grid md:grid-cols-3 gap-4">
+                    <Card title="Gasto por frascos (semana)" subtitle="Distribución real" right={<span className="text-xs text-gray-400">desde API</span>}>
+                      <Bars data={barData}/>
+                    </Card>
+                    <Card title="Insights" subtitle="Basado en tus movimientos">
+                      {insights ? <InsightCards insights={insights}/> : <div className="text-sm text-gray-500">Genera el reporte semanal para ver tus insights.</div>}
+                    </Card>
+                    <Card title="Agregar movimiento" subtitle="Manual">
+                      <QuickAdd onAdd={addTxManual}/>
+                    </Card>
+                  </div>
+
+                  <Card title="Últimos movimientos">
+                    <TransactionsTable items={[...txs].slice(0,10)}/>
+                    <div className="mt-2"><button onClick={loadTx} className="px-3 py-2 rounded-xl border text-sm">Actualizar</button></div>
+                  </Card>
+                </>
+              )}
+
+              {tab==="import" && (
+                <>
+                  <Card title="Subir extracto de banco" subtitle="CSV o XLSX">
+                    <div className="grid gap-3">
+                      <div className="grid grid-cols-12 gap-2 items-center">
+                        <input type="file" accept=".csv,.xlsx,.xls" onChange={e=>setFile(e.target.files?.[0]||null)} className="col-span-8"/>
+                        <select value={currency} onChange={e=>setCurrency(e.target.value)} className="col-span-2 px-3 py-2 border rounded-xl text-sm">
+                          <option value="COP">COP</option><option value="USD">USD</option>
+                        </select>
+                        <button onClick={uploadStatement} className="col-span-2 px-3 py-2 rounded-xl bg-indigo-600 text-white text-sm">Subir</button>
+                      </div>
+                      <details className="text-sm text-gray-600">
+                        <summary>¿No detecta las columnas? Mapea manualmente (opcional)</summary>
+                        <div className="mt-2">Ejemplo JSON: {"{"}"date":"Fecha","description":"Detalle","amount":"Monto"{"}"}</div>
+                        <textarea value={mapping} onChange={e=>setMapping(e.target.value)} placeholder='{"date":"Fecha","description":"Detalle","amount":"Monto"}' className="w-full h-24 px-3 py-2 border rounded-xl text-sm"></textarea>
+                      </details>
+                      <div className="text-xs text-gray-600">{uploadMsg}</div>
+                    </div>
+                  </Card>
+                  <Card title="Métricas (última semana)">
+                    <div className="flex gap-2 mb-2">
+                      <button onClick={loadMetrics} className="px-3 py-2 rounded-xl border text-sm">Actualizar métricas</button>
+                      <button onClick={genWeekly} className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm">Generar reporte</button>
+                    </div>
+                    <pre className="text-xs bg-gray-50 p-3 rounded-xl overflow-auto">{JSON.stringify(metrics||{}, null, 2)}</pre>
+                  </Card>
+                </>
+              )}
+
+              {tab==="tx" && (
+                <>
+                  <Card title="Agregar movimiento"><QuickAdd onAdd={addTxManual}/></Card>
+                  <Card title="Transacciones (API)">
+                    <TransactionsTable items={txs}/>
+                    <div className="mt-2"><button onClick={loadTx} className="px-3 py-2 rounded-xl border text-sm">Actualizar</button></div>
+                  </Card>
+                </>
+              )}
+
+              {tab==="edu" && (
+                <>
+                  <div className="flex gap-2">
+                    <button onClick={genPlan} className="px-3 py-2 rounded-xl bg-indigo-600 text-white text-sm">Generar plan 6 semanas</button>
+                  </div>
+                  <Card title="Plan personalizado">
+                    <EducationPlan plan={plan}/>
+                  </Card>
+                </>
+              )}
+
+              {tab==="review" && (
+                <WeeklyReview metrics={metrics||{}} microAction={microAction} onAccept={()=>alert("¡Acción registrada para esta semana!")} />
+              )}
+            </section>
+          </main>
+
+          <footer className="py-8 text-center text-xs text-gray-500">UI React (CDN) • Extractos/Manual • Conectada a tu API de Colab/ngrok</footer>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+  </script>
+</body>
+</html>
