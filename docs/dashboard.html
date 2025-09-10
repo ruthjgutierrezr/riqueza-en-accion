@@ -210,15 +210,18 @@
         ping(base);
       };
 
-      const ping = async (base=apiBase)=>{
-        setApiStatus("Probando...");
-        try{
-          const j = await fetchJSON(`${base}/healthz`);
-          setApiStatus(j && j.ok ? "Conexión OK ✅" : "No parece tu API");
-        }catch{
-          setApiStatus("No se pudo conectar. ¿Colab está corriendo?");
-        }
-      };
+  const ping = async (base=apiBase)=>{
+    setApiStatus("Probando...");
+    try{
+      const r = await fetch(`${base}/`);
+      const txt = await r.text();
+      let ok = false;
+      try { ok = JSON.parse(txt)?.ok === true; } catch {}
+      setApiStatus(ok ? "Conexión OK ✅" : "No parece tu API. Recibí: " + txt.slice(0,80) + "...");
+    }catch{
+      setApiStatus("No se pudo conectar. ¿Colab está corriendo?");
+    }
+  };
 
       const loadTx = async ()=>{
         if(!apiBase) return;
