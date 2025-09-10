@@ -2,7 +2,7 @@
 <html lang="es">
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Riqueza en Acción — Demo</title>
+<title>Riqueza en Acción — Extractos o Manual</title>
 <style>
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu;background:#f8fafc;margin:0}
   .wrap{max-width:960px;margin:32px auto;padding:0 16px}
@@ -16,11 +16,11 @@
 </style>
 <body>
 <div class="wrap">
-  <h1>Riqueza en Acción — Diario + Guía</h1>
-  <p>1) Pon la URL de tu API (ngrok) · 2) Agrega movimientos · 3) Ver métricas y reporte</p>
+  <h1>Riqueza en Acción — Subir extracto o ingresar manual</h1>
+  <p>1) Pega la URL de tu API (ngrok) · 2) Sube archivo o agrega movimientos · 3) Métricas y reporte</p>
 
   <div class="card">
-    <h3>1) Conexión con tu API (ngrok)</h3>
+    <h3>1) Conexión con tu API</h3>
     <div class="row">
       <input id="api" style="flex:1" placeholder="https://xxxx.ngrok-free.app"/>
       <button onclick="setAPI()">Guardar</button>
@@ -30,10 +30,25 @@
   </div>
 
   <div class="card">
-    <h3>2) Agregar movimiento</h3>
+    <h3>2A) Subir extracto (CSV o XLSX)</h3>
+    <div class="row">
+      <input id="file" type="file" accept=".csv,.xlsx,.xls"/>
+      <select id="currency"><option value="COP">COP</option><option value="USD">USD</option></select>
+      <button onclick="upload()">Subir</button>
+    </div>
+    <details>
+      <summary>¿No detecta las columnas? Mapea manualmente (opcional)</summary>
+      <p>Ejemplo JSON: <code>{"date":"Fecha","description":"Detalle","amount":"Monto","debit":null,"credit":null}</code></p>
+      <input id="mapping" placeholder='{"date":"Fecha","description":"Detalle","amount":"Monto"}' style="width:100%"/>
+    </details>
+    <div id="upmsg" class="msg"></div>
+  </div>
+
+  <div class="card">
+    <h3>2B) Agregar movimiento manual</h3>
     <div class="row">
       <input id="date" type="date"/>
-      <input id="amount" type="number" step="any" placeholder="Monto (neg=gasto)"/>
+      <input id="amount" type="number" step="any" placeholder="Monto (neg=gasto, pos=ingreso)"/>
       <input id="cat" placeholder="Categoría" value="Otros"/>
       <select id="jar">
         <option>NEC</option><option>FFA</option><option>EDU</option>
@@ -58,13 +73,6 @@
     <pre id="report"></pre>
     <div id="reportmsg" class="msg"></div>
   </div>
-
-  <div class="card">
-    <h3>5) Plan educativo (Kiyosaki + Eker)</h3>
-    <button onclick="genPlan()">Crear plan 6 semanas</button>
-    <pre id="plan"></pre>
-    <div id="planmsg" class="msg"></div>
-  </div>
 </div>
 
 <script>
@@ -76,29 +84,17 @@ function setAPI(){
     document.getElementById('apistatus').innerHTML = "<span class='bad'>Debe empezar por https://</span>";
     return;
   }
-  API_BASE = v.replace(/\/+$/,""); // quitar / final
+  API_BASE = v.replace(/\/+$/,"");
   localStorage.setItem("API_BASE", API_BASE);
   document.getElementById('apistatus').innerHTML = "<span class='ok'>API guardada: "+API_BASE+"</span>";
 }
-
 async function pingAPI(){
   const el = document.getElementById('apistatus');
-  if(!API_BASE){
-    el.innerHTML = "<span class='bad'>Pega primero tu URL de ngrok arriba.</span>";
-    return;
-  }
+  if(!API_BASE){ el.innerHTML = "<span class='bad'>Pega tu URL de ngrok arriba.</span>"; return; }
   try {
-    const r = await fetch(`${API_BASE}/`);
-    const text = await r.text();
-    let ok = false;
-    try {
-      const j = JSON.parse(text);
-      ok = j && j.ok === true;   // valida {"ok": true}
-    } catch(_) { /* no era JSON */ }
-    el.innerHTML = ok
-      ? "<span class='ok'>Conexión OK ✅</span>"
-      : "<span class='bad'>No parece tu API. Recibí: "
-        + text.slice(0,120).replace(/[<>&]/g, s => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[s])) + "...</span>";
+    const r = await fetch(`${API_BASE}/healthz`);
+    const j = await r.json();
+    el.innerHTML = j && j.ok ? "<span class='ok'>Conexión OK ✅</span>" : "<span class='bad'>No parece tu API.</span>";
   } catch {
     el.innerHTML = "<span class='bad'>No se pudo conectar. ¿Colab está corriendo?</span>";
   }
@@ -107,23 +103,26 @@ async function pingAPI(){
 async function safeFetchJSON(url, options, outPreId, msgId){
   const out = document.getElementById(outPreId), msg = document.getElementById(msgId);
   out.textContent = ""; msg.textContent = "";
-  if(!API_BASE){ msg.innerHTML = "<span class='bad'>Primero configura la API (arriba).</span>"; return null; }
+  if(!API_BASE){ msg.innerHTML = "<span class='bad'>Configura la API primero.</span>"; return null; }
   try {
     const r = await fetch(url, options);
     const text = await r.text();
     try {
-      const json = JSON.parse(text);
-      out.textContent = JSON.stringify(json, null, 2);
-      return json;
-    } catch {
-      out.textContent = text;
-      msg.innerHTML = "<span class='bad'>⚠️ La respuesta no es JSON. Suele pasar si API_BASE no es tu URL de ngrok o Colab se detuvo.</span>";
-      return null;
-    }
-  } catch {
-    msg.innerHTML = "<span class='bad'>Error de conexión. ¿API viva? ¿URL correcta?</span>";
-    return null;
-  }
+      const json = JSON.parse(text); out.textContent = JSON.stringify(json, null, 2); return json;
+    } catch { out.textContent = text; msg.innerHTML = "<span class='bad'>⚠️ La respuesta no es JSON. ¿URL de ngrok correcta? ¿Colab activo?</span>"; return null; }
+  } catch { msg.innerHTML = "<span class='bad'>Error de conexión.</span>"; return null; }
+}
+
+async function upload(){
+  const f = document.getElementById('file').files[0];
+  if(!f){ document.getElementById('upmsg').innerHTML = "<span class='bad'>Elige un archivo.</span>"; return; }
+  const fd = new FormData();
+  fd.append('file', f);
+  fd.append('currency', document.getElementById('currency').value);
+  const mp = document.getElementById('mapping').value.trim();
+  if(mp) fd.append('mapping', mp);
+  const r = await safeFetchJSON(`${API_BASE}/api/upload/statement`, { method:"POST", body: fd }, "metrics", "upmsg");
+  if(r && r.ok) document.getElementById('upmsg').innerHTML = "<span class='ok'>Subido: "+r.inserted+" movimientos.</span>";
 }
 
 async function addTx(){
@@ -135,31 +134,15 @@ async function addTx(){
     jar: document.getElementById('jar').value,
     note: document.getElementById('note').value || ""
   };
-  const ok = await safeFetchJSON(`${API_BASE}/api/tx`, {
-    method:"POST", headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
-  }, "metrics", "txmsg");
-  document.getElementById('txmsg').innerHTML = ok ? "<span class='ok'>Movimiento guardado ✓</span>"
-                                                  : "<span class='bad'>No se pudo guardar.</span>";
-}
-async function loadMetrics(){
-  await safeFetchJSON(`${API_BASE}/api/metrics/weekly`, {}, "metrics", "metricsmsg");
-}
-async function weekly(){
-  await safeFetchJSON(`${API_BASE}/api/agent/weekly-report`, {
-    method:"POST", headers:{'Content-Type':'application/json'}, body:"{}"
-  }, "report", "reportmsg");
-}
-async function genPlan(){
-  await safeFetchJSON(`${API_BASE}/api/plan`, {
-    method:"POST", headers:{'Content-Type':'application/json'}, body:JSON.stringify({level:"basico", weeks:6})
-  }, "plan", "planmsg");
+  const ok = await safeFetchJSON(`${API_BASE}/api/tx`, {method:"POST", headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}, "metrics", "txmsg");
+  document.getElementById('txmsg').innerHTML = ok && ok.ok ? "<span class='ok'>Movimiento guardado ✓</span>" : "<span class='bad'>No se pudo guardar.</span>";
 }
 
-// Cargar API_BASE guardado (si había)
-if(API_BASE){
-  document.getElementById('api').value = API_BASE;
-  document.getElementById('apistatus').innerHTML = "<span class='ok'>API recordada: "+API_BASE+"</span>";
-}
+async function loadMetrics(){ await safeFetchJSON(`${API_BASE}/api/metrics/weekly`, {}, "metrics", "metricsmsg"); }
+async function weekly(){ await safeFetchJSON(`${API_BASE}/api/agent/weekly-report`, {method:"POST", headers:{'Content-Type':'application/json'}, body:"{}"}, "report", "reportmsg"); }
+
+// Restaura API guardada
+if(API_BASE){ document.getElementById('api').value = API_BASE; document.getElementById('apistatus').innerHTML = "<span class='ok'>API recordada: "+API_BASE+"</span>"; }
 </script>
 </body>
 </html>
