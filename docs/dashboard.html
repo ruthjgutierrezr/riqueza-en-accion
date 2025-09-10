@@ -1,1 +1,106 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Riqueza en Acción — Dashboard (CSV/XLSX o Manual)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+  <div id="root"></div>
+
+  <!-- React 18 por CDN + Babel para JSX sin build -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo } = React;
+    const JARS = ["NEC","FFA","EDU","LTSS","PLAY","GIVE"];
+
+    const cn = (...xs)=>xs.filter(Boolean).join(" ");
+    const money = (v,c="COP") => {
+      try { return new Intl.NumberFormat("es-CO",{style:"currency",currency:c,maximumFractionDigits:0}).format(v); }
+      catch { return v+" "+c; }
+    };
+
+    const Card = ({title, subtitle, right, children}) => (
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+        <div className="flex items-start justify-between mb-3">
+          <div>
+            {title && <h3 className="text-sm font-semibold text-gray-900">{title}</h3>}
+            {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
+          </div>
+          {right}
+        </div>
+        {children}
+      </div>
+    );
+
+    const RingGauge = ({ value=0, label }) => {
+      const angle = Math.max(0, Math.min(100, value))*3.6;
+      const bg = `conic-gradient(currentColor ${angle}deg, rgba(0,0,0,0.1) ${angle}deg 360deg)`;
+      return (
+        <div className="flex flex-col items-center">
+          <div className="text-sm text-gray-500 mb-1">{label}</div>
+          <div className="relative h-20 w-20 text-indigo-600" style={{background:bg,borderRadius:"50%"}}>
+            <div className="absolute inset-2 bg-white rounded-full grid place-items-center text-sm font-semibold text-gray-800">
+              {Math.round(value)}%
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const Bars = ({ data }) => {
+      const max = Math.max(1, ...data.map(d=>d.value));
+      return (
+        <div className="space-y-2">
+          {data.map(d=>(
+            <div key={d.label} className="grid grid-cols-12 items-center gap-2">
+              <div className="col-span-3 text-xs text-gray-500 truncate">{d.label}</div>
+              <div className="col-span-9 bg-gray-100 rounded h-2">
+                <div className="h-2 rounded bg-indigo-600" style={{width:`${(d.value/max)*100}%`}}/>
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    };
+
+    const TransactionsTable = ({items=[]}) => (
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="text-left text-gray-500">
+              <th className="py-2 pr-4">Fecha</th>
+              <th className="py-2 pr-4">Monto</th>
+              <th className="py-2 pr-4">Jar</th>
+              <th className="py-2 pr-4">Categoría</th>
+              <th className="py-2 pr-4">Nota</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((t,i)=>(
+              <tr key={t.id || i} className="border-t">
+                <td className="py-2 pr-4 whitespace-nowrap">{t.date}</td>
+                <td className={cn("py-2 pr-4", t.amount < 0 ? "text-rose-600" : "text-emerald-600")}>{money(t.amount, t.currency||"COP")}</td>
+                <td className="py-2 pr-4">{t.jar}</td>
+                <td className="py-2 pr-4">{t.category}</td>
+                <td className="py-2 pr-4 text-gray-500">{t.note || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+
+    const QuickAdd = ({ onAdd })=>{
+      const [amount, setAmount] = useState("");
+      const [category, setCategory] = useState("Otros");
+      const [jar, setJar] = useState("NEC");
+      const [note, setNote] = useState("");
+      return (
+        <form onSubmit={(e)=>{e.preventDefault(); onAdd({amount:Number(amount),category,jar,note}); setAmount(""); setNote("");}} className="grid grid-cols-12 gap-2">
+          <input type="number" step="any" required value={amoun
 
