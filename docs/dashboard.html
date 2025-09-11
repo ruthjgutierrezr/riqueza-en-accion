@@ -14,9 +14,18 @@
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-<script type="text/babel" data-presets="env,react">
+  <!-- IMPORTANTE: data-presets para compilar JSX -->
+  <script type="text/babel" data-presets="env,react">
     const { useState, useEffect, useMemo } = React;
     const JARS = ["NEC","FFA","EDU","LTSS","PLAY","GIVE"];
+
+    // Añade el parámetro para saltar el warning de ngrok en TODAS las peticiones
+    const withBypass = (url) => {
+      if (!/https:\/\/[^/]+\.ngrok-free\.app/i.test(url)) return url;
+      return url.includes("?")
+        ? `${url}&ngrok-skip-browser-warning=true`
+        : `${url}?ngrok-skip-browser-warning=true`;
+    };
 
     const cn = (...xs)=>xs.filter(Boolean).join(" ");
     const money = (v,c="COP") => {
@@ -195,55 +204,42 @@
         if(saved){ setApiBase(saved); ping(saved); }
       }, []);
 
-      const fetchJSON = async (url, init)=>{
-        const r = await fetch(url, init);
+      const fetchJSON = async (url, init={})=>{
+        const r = await fetch(withBypass(url), { cache:"no-store", ...init });
         const text = await r.text();
         try { return JSON.parse(text); }
-        catch { throw new Error("Respuesta no JSON: "+text.slice(0,120)); }
+        catch { throw new Error("Respuesta no JSON: "+text.slice(0,200)); }
       };
 
-const saveApiBase = ()=>{
-  const v = (apiBase || "").trim().replace(/\s+/g,"");
-  if(!v.startsWith("https://")){
-    setApiStatus("Debe empezar por https://");
-    return;
-  }
-  const base = v.replace(/\/+$/,'');   // sin barras al final
-  setApiBase(base);
-  localStorage.setItem("API_BASE", base);
-  ping(base);
-};
+      const saveApiBase = ()=>{
+        const v = (apiBase || "").trim().replace(/\s+/g,"");
+        if(!v.startsWith("https://")){
+          setApiStatus("Debe empezar por https://");
+          return;
+        }
+        const base = v.replace(/\/+$/,''); // sin barra final
+        setApiBase(base);
+        localStorage.setItem("API_BASE", base);
+        ping(base);
+      };
 
-const ping = async (base=apiBase)=>{
-  setApiStatus("Probando...");
-  try{
-    // Intentos en orden: /healthz (tuyo) → /openapi.json (FastAPI siempre JSON) → /
-    const candidates = [`${base}/healthz`, `${base}/openapi.json`, `${base}/`];
-
-    for(const url of candidates){
-      const r = await fetch(url, { method:"GET", cache:"no-store" });
-      const ct = (r.headers.get("content-type") || "").toLowerCase();
-      const text = await r.text();
-
-      // ¿Es JSON?
-      if (ct.includes("application/json")) {
-        try {
-          const j = JSON.parse(text);
-          if (j?.ok === true || j?.openapi) { setApiStatus("Conexión OK ✅"); return; }
-        } catch {}
-      }
-      // Si no vino con header JSON, pruebo a parsear igual:
-      try {
-        const j = JSON.parse(text);
-        if (j?.ok === true || j?.openapi) { setApiStatus("Conexión OK ✅"); return; }
-      } catch {}
-    }
-
-    setApiStatus("No parece tu API. Recibí: " + "…"+ " (HTML en vez de JSON)");
-  }catch(e){
-    setApiStatus("No se pudo conectar. ¿Colab está corriendo?");
-  }
-};
+      const ping = async (base=apiBase)=>{
+        setApiStatus("Probando...");
+        try{
+          const cands = [`${base}/healthz`, `${base}/openapi.json`, `${base}/`];
+          for(const u of cands){
+            const r = await fetch(withBypass(u), { method:"GET", cache:"no-store" });
+            const txt = await r.text();
+            try{
+              const j = JSON.parse(txt);
+              if (j?.ok === true || j?.openapi) { setApiStatus("Conexión OK ✅"); return; }
+            }catch{}
+          }
+          setApiStatus("No parece tu API (recibí HTML u otra cosa).");
+        }catch{
+          setApiStatus("No se pudo conectar. ¿Colab está corriendo?");
+        }
+      };
 
       const loadTx = async ()=>{
         if(!apiBase) return;
@@ -262,7 +258,9 @@ const ping = async (base=apiBase)=>{
       const genWeekly = async ()=>{
         if(!apiBase) return;
         try{
-          const j = await fetchJSON(`${apiBase}/api/agent/weekly-report`, {method:"POST", headers:{'Content-Type':'application/json'}, body:"{}"});
+          const j = await fetchJSON(`${apiBase}/api/agent/weekly-report`, {
+            method:"POST", headers:{'Content-Type':'application/json'}, body:"{}"
+          });
           setInsights(j.insights||[]); setMicroAction(j.micro_action||"");
         }catch(e){ alert(e.message); }
       };
@@ -270,7 +268,9 @@ const ping = async (base=apiBase)=>{
       const genPlan = async ()=>{
         if(!apiBase) return;
         try{
-          const j = await fetchJSON(`${apiBase}/api/plan`, {method:"POST", headers:{'Content-Type':'application/json'}, body: JSON.stringify({level:"basico", weeks:6})});
+          const j = await fetchJSON(`${apiBase}/api/plan`, {
+            method:"POST", headers:{'Content-Type':'application/json'}, body: JSON.stringify({level:"basico", weeks:6})
+          });
           setPlan(j);
         }catch(e){ alert(e.message); }
       };
@@ -294,11 +294,12 @@ const ping = async (base=apiBase)=>{
         fd.append("currency", currency);
         if(mapping.trim()) fd.append("mapping", mapping.trim());
         try{
-          const r = await fetch(`${apiBase}/api/upload/statement`, {method:"POST", body: fd});
+          const r = await fetch(withBypass(`${apiBase}/api/upload/statement`), { method:"POST", body: fd });
           const text = await r.text();
-          const json = JSON.parse(text);
-          if(json.ok){ setUploadMsg(`Subido: ${json.inserted} movimientos`); await loadTx(); await loadMetrics(); }
-          else setUploadMsg("No pude procesar el archivo: "+(json.error||""));
+          let json = null;
+          try { json = JSON.parse(text); } catch {}
+          if(json && json.ok){ setUploadMsg(`Subido: ${json.inserted} movimientos`); await loadTx(); await loadMetrics(); }
+          else setUploadMsg("No pude procesar el archivo: "+(json?.error||text.slice(0,120)));
         }catch{ setUploadMsg("Error de conexión o formato."); }
       };
 
@@ -400,8 +401,8 @@ const ping = async (base=apiBase)=>{
                       </div>
                       <details className="text-sm text-gray-600">
                         <summary>¿No detecta las columnas? Mapea manualmente (opcional)</summary>
-                        <div className="mt-2">Ejemplo JSON: {"{"}"date":"Fecha","description":"Detalle","amount":"Monto"{"}"}</div>
-                        <textarea value={mapping} onChange={e=>setMapping(e.target.value)} placeholder='{"date":"Fecha","description":"Detalle","amount":"Monto"}' className="w-full h-24 px-3 py-2 border rounded-xl text-sm"></textarea>
+                        <div className="mt-2">Ejemplo JSON: {"{"}"date":"FECHA","description":"DETALLE","amount":"MONTO"{"}"}</div>
+                        <textarea value={mapping} onChange={e=>setMapping(e.target.value)} placeholder='{"date":"FECHA","description":"DETALLE","amount":"MONTO"}' className="w-full h-24 px-3 py-2 border rounded-xl text-sm"></textarea>
                       </details>
                       <div className="text-xs text-gray-600">{uploadMsg}</div>
                     </div>
