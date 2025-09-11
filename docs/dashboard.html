@@ -19,7 +19,8 @@
     const { useState, useEffect, useMemo } = React;
     const JARS = ["NEC","FFA","EDU","LTSS","PLAY","GIVE"];
 
-    // Añade el parámetro para saltar el warning de ngrok en TODAS las peticiones
+    // --- BYPASS NGROK: header + query param ---
+    const NGROK_HEADERS = { "ngrok-skip-browser-warning": "true", "Accept": "application/json" };
     const withBypass = (url) => {
       if (!/https:\/\/[^/]+\.ngrok-free\.app/i.test(url)) return url;
       return url.includes("?")
@@ -205,10 +206,11 @@
       }, []);
 
       const fetchJSON = async (url, init={})=>{
-        const r = await fetch(withBypass(url), { cache:"no-store", ...init });
+        const headers = { ...(init.headers||{}), ...NGROK_HEADERS };
+        const r = await fetch(withBypass(url), { cache:"no-store", ...init, headers });
         const text = await r.text();
         try { return JSON.parse(text); }
-        catch { throw new Error("Respuesta no JSON: "+text.slice(0,200)); }
+        catch { throw new Error("Respuesta no JSON: "+text.slice(0,300)); }
       };
 
       const saveApiBase = ()=>{
@@ -224,39 +226,33 @@
       };
 
       const ping = async (base=apiBase)=>{
-  setApiStatus("Probando...");
-  try{
-    // Probamos primero un endpoint 100% JSON de tu API
-    const candidates = [
-      `${base}/api/tx?limit=1`,
-      `${base}/healthz`,
-      `${base}/openapi.json`,
-      `${base}/`
-    ];
-    for(const raw of candidates){
-      const url = withBypass(raw);        // <- mantiene el bypass de ngrok
-      try{
-        const r = await fetch(url, { method:"GET", cache:"no-store" });
-        const text = await r.text();
-        let j = null;
-        try { j = JSON.parse(text); } catch {}
-        // /api/tx -> j.items; /healthz -> {ok:true}; /openapi.json -> {openapi:...}
-        if ((j && Array.isArray(j.items)) || j?.ok === true || j?.openapi){
-          setApiStatus("Conexión OK ✅");
-          return;
+        setApiStatus("Probando...");
+        try{
+          const cands = [
+            `${base}/api/tx?limit=1`,   // JSON seguro: {"items":[...]}
+            `${base}/healthz`,          // {"ok":true} si lo tienes
+            `${base}/openapi.json`,     // JSON de FastAPI
+            `${base}/`                  // raíz (si devuelve JSON)
+          ];
+          for(const raw of cands){
+            try{
+              const r = await fetch(withBypass(raw), { method:"GET", cache:"no-store", headers: NGROK_HEADERS });
+              const txt = await r.text();
+              let j = null; try { j = JSON.parse(txt); } catch {}
+              if ((j && Array.isArray(j.items)) || j?.ok === true || j?.openapi){
+                setApiStatus("Conexión OK ✅"); return;
+              }
+            }catch{}
+          }
+          setApiStatus("Conecté pero recibí HTML en los endpoints de prueba. (La API está OK; es solo el ping).");
+        }catch{
+          setApiStatus("No se pudo conectar. ¿Colab está corriendo?");
         }
-      }catch{}
-    }
-    setApiStatus("Conecté pero recibí HTML en los endpoints de prueba. (La API está OK; es solo el ping).");
-  }catch{
-    setApiStatus("No se pudo conectar. ¿Colab está corriendo?");
-  }
-};
-
+      };
 
       const loadTx = async ()=>{
         if(!apiBase) return;
-        try{ const j = await fetchJSON(`${apiBase}/api/tx`); setTxs(j.items||[]); }catch{}
+        try{ const j = await fetchJSON(`${apiBase}/api/tx?limit=100`); setTxs(j.items||[]); }catch{}
       };
 
       const loadMetrics = async ()=>{
@@ -272,7 +268,7 @@
         if(!apiBase) return;
         try{
           const j = await fetchJSON(`${apiBase}/api/agent/weekly-report`, {
-            method:"POST", headers:{'Content-Type':'application/json'}, body:"{}"
+            method:"POST", headers:{'Content-Type':'application/json', ...NGROK_HEADERS}, body:"{}"
           });
           setInsights(j.insights||[]); setMicroAction(j.micro_action||"");
         }catch(e){ alert(e.message); }
@@ -282,7 +278,7 @@
         if(!apiBase) return;
         try{
           const j = await fetchJSON(`${apiBase}/api/plan`, {
-            method:"POST", headers:{'Content-Type':'application/json'}, body: JSON.stringify({level:"basico", weeks:6})
+            method:"POST", headers:{'Content-Type':'application/json', ...NGROK_HEADERS}, body: JSON.stringify({level:"basico", weeks:6})
           });
           setPlan(j);
         }catch(e){ alert(e.message); }
@@ -292,7 +288,7 @@
         if(!apiBase) return alert("Configura la API primero");
         const body = { date: new Date().toISOString().slice(0,10), amount:Number(amount||0), currency:"COP", category:category||"Otros", jar:jar||"NEC", note:note||"" };
         try{
-          await fetchJSON(`${apiBase}/api/tx`, {method:"POST", headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+          await fetchJSON(`${apiBase}/api/tx`, {method:"POST", headers:{'Content-Type':'application/json', ...NGROK_HEADERS}, body: JSON.stringify(body)});
           await loadTx(); await loadMetrics();
           alert("Movimiento guardado ✓");
         }catch(e){ alert(e.message); }
@@ -307,12 +303,11 @@
         fd.append("currency", currency);
         if(mapping.trim()) fd.append("mapping", mapping.trim());
         try{
-          const r = await fetch(withBypass(`${apiBase}/api/upload/statement`), { method:"POST", body: fd });
+          const r = await fetch(withBypass(`${apiBase}/api/upload/statement`), { method:"POST", headers: NGROK_HEADERS, body: fd });
           const text = await r.text();
-          let json = null;
-          try { json = JSON.parse(text); } catch {}
-          if(json && json.ok){ setUploadMsg(`Subido: ${json.inserted} movimientos`); await loadTx(); await loadMetrics(); }
-          else setUploadMsg("No pude procesar el archivo: "+(json?.error||text.slice(0,120)));
+          let json = null; try { json = JSON.parse(text); } catch {}
+          if(json && json.ok){ setUploadMsg(`Subido: ${json.inserted} movimientos (saltados: ${json.skipped||0})`); await loadTx(); await loadMetrics(); }
+          else setUploadMsg("No pude procesar el archivo: "+(json?.error||text.slice(0,160)));
         }catch{ setUploadMsg("Error de conexión o formato."); }
       };
 
