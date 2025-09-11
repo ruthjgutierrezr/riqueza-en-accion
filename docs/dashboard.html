@@ -202,13 +202,13 @@
         catch { throw new Error("Respuesta no JSON: "+text.slice(0,120)); }
       };
 
-  const saveApiBase = ()=>{
+const saveApiBase = ()=>{
   const v = (apiBase || "").trim().replace(/\s+/g,"");
   if(!v.startsWith("https://")){
     setApiStatus("Debe empezar por https://");
     return;
   }
-  const base = v.replace(/\/+$/,''); // quita barras al final
+  const base = v.replace(/\/+$/,'');   // sin barras al final
   setApiBase(base);
   localStorage.setItem("API_BASE", base);
   ping(base);
@@ -217,23 +217,34 @@
 const ping = async (base=apiBase)=>{
   setApiStatus("Probando...");
   try{
-    // 1) probamos /healthz si existe
-    let r = await fetch(`${base}/healthz`, { method:"GET" });
-    if(r.ok){
-      const j = await r.json().catch(()=>null);
-      if(j && j.ok===true){ setApiStatus("Conexión OK ✅"); return; }
+    // Intentos en orden: /healthz (tuyo) → /openapi.json (FastAPI siempre JSON) → /
+    const candidates = [`${base}/healthz`, `${base}/openapi.json`, `${base}/`];
+
+    for(const url of candidates){
+      const r = await fetch(url, { method:"GET", cache:"no-store" });
+      const ct = (r.headers.get("content-type") || "").toLowerCase();
+      const text = await r.text();
+
+      // ¿Es JSON?
+      if (ct.includes("application/json")) {
+        try {
+          const j = JSON.parse(text);
+          if (j?.ok === true || j?.openapi) { setApiStatus("Conexión OK ✅"); return; }
+        } catch {}
+      }
+      // Si no vino con header JSON, pruebo a parsear igual:
+      try {
+        const j = JSON.parse(text);
+        if (j?.ok === true || j?.openapi) { setApiStatus("Conexión OK ✅"); return; }
+      } catch {}
     }
-    // 2) fallback: probamos la raíz /
-    r = await fetch(`${base}/`, { method:"GET" });
-    const txt = await r.text();
-    let ok = false;
-    try { ok = JSON.parse(txt)?.ok === true; } catch {}
-    setApiStatus(ok ? "Conexión OK ✅"
-                    : "No parece tu API. Recibí: " + txt.slice(0,120) + "…");
+
+    setApiStatus("No parece tu API. Recibí: " + "…"+ " (HTML en vez de JSON)");
   }catch(e){
     setApiStatus("No se pudo conectar. ¿Colab está corriendo?");
   }
 };
+
       const loadTx = async ()=>{
         if(!apiBase) return;
         try{ const j = await fetchJSON(`${apiBase}/api/tx`); setTxs(j.items||[]); }catch{}
