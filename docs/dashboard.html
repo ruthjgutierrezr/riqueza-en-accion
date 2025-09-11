@@ -224,22 +224,35 @@
       };
 
       const ping = async (base=apiBase)=>{
-        setApiStatus("Probando...");
-        try{
-          const cands = [`${base}/healthz`, `${base}/openapi.json`, `${base}/`];
-          for(const u of cands){
-            const r = await fetch(withBypass(u), { method:"GET", cache:"no-store" });
-            const txt = await r.text();
-            try{
-              const j = JSON.parse(txt);
-              if (j?.ok === true || j?.openapi) { setApiStatus("Conexión OK ✅"); return; }
-            }catch{}
-          }
-          setApiStatus("No parece tu API (recibí HTML u otra cosa).");
-        }catch{
-          setApiStatus("No se pudo conectar. ¿Colab está corriendo?");
+  setApiStatus("Probando...");
+  try{
+    // Probamos primero un endpoint 100% JSON de tu API
+    const candidates = [
+      `${base}/api/tx?limit=1`,
+      `${base}/healthz`,
+      `${base}/openapi.json`,
+      `${base}/`
+    ];
+    for(const raw of candidates){
+      const url = withBypass(raw);        // <- mantiene el bypass de ngrok
+      try{
+        const r = await fetch(url, { method:"GET", cache:"no-store" });
+        const text = await r.text();
+        let j = null;
+        try { j = JSON.parse(text); } catch {}
+        // /api/tx -> j.items; /healthz -> {ok:true}; /openapi.json -> {openapi:...}
+        if ((j && Array.isArray(j.items)) || j?.ok === true || j?.openapi){
+          setApiStatus("Conexión OK ✅");
+          return;
         }
-      };
+      }catch{}
+    }
+    setApiStatus("Conecté pero recibí HTML en los endpoints de prueba. (La API está OK; es solo el ping).");
+  }catch{
+    setApiStatus("No se pudo conectar. ¿Colab está corriendo?");
+  }
+};
+
 
       const loadTx = async ()=>{
         if(!apiBase) return;
