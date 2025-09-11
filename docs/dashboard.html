@@ -202,19 +202,22 @@
         catch { throw new Error("Respuesta no JSON: "+text.slice(0,120)); }
       };
 
-      const saveApiBase = ()=>{
-        if(!apiBase.startsWith("https://")) { setApiStatus("Debe empezar por https://"); return; }
-        const base = apiBase.replace(/\/+$/,'');
-        setApiBase(base);
-        localStorage.setItem("API_BASE", base);
-        ping(base);
-      };
-
+  const saveApiBase = ()=>{
+    const v = (apiBase || "").trim();                // ← quita espacios
+    if(!v.startsWith("https://")){
+      setApiStatus("Debe empezar por https://");
+      return;
+    }
+    const base = v.replace(/\/+$/,'');               // ← quita barra final
+    setApiBase(base);
+    localStorage.setItem("API_BASE", base);
+    ping(base);
+  };
 
   const ping = async (base=apiBase)=>{
     setApiStatus("Probando...");
     try{
-      const r = await fetch(`${base}/`);       // <-- consulta la raíz en vez de /healthz
+      const r = await fetch(`${base}/`);              // ← raíz en vez de /healthz
       const txt = await r.text();
       let ok = false;
       try { ok = JSON.parse(txt)?.ok === true; } catch {}
