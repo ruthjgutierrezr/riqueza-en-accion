@@ -14,7 +14,7 @@
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <script type="text/babel">
+<script type="text/babel" data-presets="env,react">
     const { useState, useEffect, useMemo } = React;
     const JARS = ["NEC","FFA","EDU","LTSS","PLAY","GIVE"];
 
@@ -203,31 +203,37 @@
       };
 
   const saveApiBase = ()=>{
-    const v = (apiBase || "").trim();                // ← quita espacios
-    if(!v.startsWith("https://")){
-      setApiStatus("Debe empezar por https://");
-      return;
-    }
-    const base = v.replace(/\/+$/,'');               // ← quita barra final
-    setApiBase(base);
-    localStorage.setItem("API_BASE", base);
-    ping(base);
-  };
+  const v = (apiBase || "").trim().replace(/\s+/g,"");
+  if(!v.startsWith("https://")){
+    setApiStatus("Debe empezar por https://");
+    return;
+  }
+  const base = v.replace(/\/+$/,''); // quita barras al final
+  setApiBase(base);
+  localStorage.setItem("API_BASE", base);
+  ping(base);
+};
 
-  const ping = async (base=apiBase)=>{
-    setApiStatus("Probando...");
-    try{
-      const r = await fetch(`${base}/`);              // ← raíz en vez de /healthz
-      const txt = await r.text();
-      let ok = false;
-      try { ok = JSON.parse(txt)?.ok === true; } catch {}
-      setApiStatus(ok ? "Conexión OK ✅"
-                      : "No parece tu API. Recibí: " + txt.slice(0,80) + "...");
-    }catch{
-      setApiStatus("No se pudo conectar. ¿Colab está corriendo?");
+const ping = async (base=apiBase)=>{
+  setApiStatus("Probando...");
+  try{
+    // 1) probamos /healthz si existe
+    let r = await fetch(`${base}/healthz`, { method:"GET" });
+    if(r.ok){
+      const j = await r.json().catch(()=>null);
+      if(j && j.ok===true){ setApiStatus("Conexión OK ✅"); return; }
     }
-  };
-
+    // 2) fallback: probamos la raíz /
+    r = await fetch(`${base}/`, { method:"GET" });
+    const txt = await r.text();
+    let ok = false;
+    try { ok = JSON.parse(txt)?.ok === true; } catch {}
+    setApiStatus(ok ? "Conexión OK ✅"
+                    : "No parece tu API. Recibí: " + txt.slice(0,120) + "…");
+  }catch(e){
+    setApiStatus("No se pudo conectar. ¿Colab está corriendo?");
+  }
+};
       const loadTx = async ()=>{
         if(!apiBase) return;
         try{ const j = await fetchJSON(`${apiBase}/api/tx`); setTxs(j.items||[]); }catch{}
