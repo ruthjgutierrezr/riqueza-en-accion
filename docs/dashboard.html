@@ -210,14 +210,16 @@
         ping(base);
       };
 
+
   const ping = async (base=apiBase)=>{
     setApiStatus("Probando...");
     try{
-      const r = await fetch(`${base}/`);
+      const r = await fetch(`${base}/`);       // <-- consulta la raíz en vez de /healthz
       const txt = await r.text();
       let ok = false;
       try { ok = JSON.parse(txt)?.ok === true; } catch {}
-      setApiStatus(ok ? "Conexión OK ✅" : "No parece tu API. Recibí: " + txt.slice(0,80) + "...");
+      setApiStatus(ok ? "Conexión OK ✅"
+                      : "No parece tu API. Recibí: " + txt.slice(0,80) + "...");
     }catch{
       setApiStatus("No se pudo conectar. ¿Colab está corriendo?");
     }
